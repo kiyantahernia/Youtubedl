@@ -1,17 +1,12 @@
-name: 01 - 🎯 دانلود یوتیوب
+name: 01 - 🎯 دانلود یوتیوب (ساده و بدون فعال‌سازی)
 
 on:
   workflow_dispatch:
     inputs:
       video_urls:
-        description: '🔗 لینک ویدیو ( چند لینک با فاصله )'
+        description: '🔗 لینک ویدیوها (چند لینک با فاصله)'
         required: true
         type: string
-      download_subtitles:
-        description: '📝 زیرنویس ( فارسی و انگلیسی )'
-        required: false
-        default: false
-        type: boolean
       quality:
         description: '🎬 کیفیت و نوع'
         required: false
@@ -25,22 +20,32 @@ on:
           - 720
           - 480
           - audio
+      download_subtitles:
+        description: '📝 دانلود زیرنویس (در صورت موجود بودن)'
+        required: false
+        default: false
+        type: boolean
       password:
-        description: '🔒 رمز ( اختیاری برای محافظت )'
+        description: '🔒 رمز برای فایل zip (اختیاری)'
         required: false
         default: ''
         type: string
 
 jobs:
-
   get-video:
     name: "📥 دانلود ویدیو"
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 120
     permissions:
       contents: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
       - name: Check URL provided
         run: |
           if [ -z "${{ github.event.inputs.video_urls }}" ]; then
@@ -48,58 +53,95 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-
-      - name: Configure Git for Large Files
-        run: |
-          git config --global http.postBuffer 524288000
-          git config --global http.maxRequestBuffer 100M
-          git config --global core.compression 0
-          git config --global pack.windowMemory 256m
-          git config --global pack.packSizeLimit 100m
-          git config --global pack.threads 1
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-      - name: Start WARP Container
-        run: |
-          docker network create warp-net || true
-          docker run -d \
-            --name warp \
-            --restart=always \
-            --network warp-net \
-            -p 1080:1080 \
-            --cap-add NET_ADMIN \
-            --sysctl net.ipv6.conf.all.disable_ipv6=0 \
-            --sysctl net.ipv4.conf.all.src_valid_mark=1 \
-            -v warp-data:/var/lib/cloudflare-warp \
-            caomingjun/warp
-          sleep 15
-
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip ffmpeg zip p7zip-full curl jq bc unzip
-          curl -fsSL https://deno.land/install.sh | sh
-          export DENO_INSTALL="$HOME/.deno"
-          export PATH="$DENO_INSTALL/bin:$PATH"
-          echo "$DENO_INSTALL/bin" >> $GITHUB_PATH
+          sudo apt-get install -y python3-pip ffmpeg zip p7zip-full
           pip3 install --upgrade yt-dlp
 
-      - name: Download YouTube Video(s)
+      - name: Create videos folder
+        run: |
+          mkdir -p videos
+
+      - name: Download YouTube videos
         env:
           YT_URLS: ${{ github.event.inputs.video_urls }}
           YT_QUALITY: ${{ github.event.inputs.quality }}
           YT_PASSWORD: ${{ github.event.inputs.password }}
-          REPO_OWNER_ENV: ${{ github.repository_owner }}
-          REPO_NAME_ENV: ${{ github.event.repository.name }}
-          BRANCH_ENV: ${{ github.ref_name }}
+          DL_SUBS: ${{ github.event.inputs.download_subtitles }}
         run: |
-          # تمام کدهای دانلود همان نسخهٔ اصلی هستند
-          # فقط بخش فعال‌سازی حذف شده است
-          echo "Starting download..."
-          # (اینجا همان اسکریپت کامل دانلود قرار می‌گیرد)
+          set -e
+
+          URLS_RAW="${YT_URLS}"
+          read -ra URL_LIST <<< "$URLS_RAW"
+
+          QUALITY="${YT_QUALITY}"
+          PASSWORD="${YT_PASSWORD}"
+          DOWNLOAD_SUBS="${DL_SUBS}"
+
+          echo "🎯 Total URLs: ${#URL_LIST[@]}"
+          echo "🎬 Quality: $QUALITY"
+          echo "🔒 Password: ${PASSWORD:+SET} ${PASSWORD:+"(zip protected)"}"
+
+          # تعیین فرمت بر اساس کیفیت
+          case "$QUALITY" in
+            "audio")
+              FORMAT="bestaudio/best"
+              ;;
+            "2160"|"1440"|"1080"|"720"|"480")
+              FORMAT="bestvideo[height<=${QUALITY}]+bestaudio/best"
+              ;;
+            *)
+              FORMAT="bestvideo+bestaudio/best"
+              ;;
+          esac
+
+          # فلگ‌های مشترک yt-dlp
+          COMMON_FLAGS="-o videos/%(title)s.%(ext)s --no-playlist --no-part --retries 5 --fragment-retries 5"
+
+          # زیرنویس در صورت نیاز
+          if [ "$DOWNLOAD_SUBS" = "true" ]; then
+            COMMON_FLAGS="$COMMON_FLAGS --write-subs --write-auto-subs --sub-langs all"
+          fi
+
+          for URL in "${URL_LIST[@]}"; do
+            echo "======================================="
+            echo "📥 Downloading: $URL"
+            echo "======================================="
+
+            yt-dlp \
+              -f "$FORMAT" \
+              $COMMON_FLAGS \
+              "$URL"
+
+            echo ""
+          done
+
+          echo "✅ Download finished. Files saved in ./videos"
+
+          # اگر پسورد داده شده، همه ویدیوها را در یک zip رمزدار قرار بده
+          if [ -n "$PASSWORD" ]; then
+            echo "🔐 Creating password-protected zip..."
+            cd videos
+            7z a -tzip -p"$PASSWORD" -mx=0 "../videos_protected.zip" *
+            cd ..
+            echo "✅ Created videos_protected.zip (password protected)"
+          fi
+
+      - name: Commit and push downloaded videos
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add videos || true
+          if [ -f "videos_protected.zip" ]; then
+            git add videos_protected.zip || true
+          fi
+
+          if git diff --cached --quiet; then
+            echo "ℹ️ Nothing to commit."
+          else
+            git commit -m "Add downloaded YouTube videos"
+            git push
+            echo "✅ Changes pushed to repository."
+          fi
