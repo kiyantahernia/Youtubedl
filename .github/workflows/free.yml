@@ -7,6 +7,11 @@ on:
         description: '📥 لینک ویدیو - چند لینک با فاصله  (دقت کنید که نسخه رایگان امکاناتی چون انتخاب کیفیت ، زیرنویس ، تبدیل به صدا ، رمزگذاری روی فایل و ... ندارد و فقط کیفیت پایین دانلود میکند'
         required: true
         type: string
+      quality:
+          description: '✨ کیفیت ویدیو را انتخاب کنید (مثال: 1080, 720, 480, 360)'
+          required: false
+          default: '360'
+          type: string
 
 jobs:
   get-video-free:
@@ -111,8 +116,8 @@ jobs:
           URLS_RAW="${YT_URLS}"
           read -ra URL_LIST <<< "$URLS_RAW"
           TOTAL_URLS=${#URL_LIST[@]}
-          QUALITY="360"
-          FORMAT="bestvideo[height<=480]+bestaudio/bestvideo[height<=480]*+bestaudio*/best[height<=480]/best"
+          QUALITY="${{ github.event.inputs.quality }}"
+          FORMAT="bestvideo[height<=?${QUALITY}]+bestaudio/bestvideo[height<=?${QUALITY}]*+bestaudio*/best[height<=?${QUALITY}]/best"
           SPLIT_MB=100
           SPLIT_BYTES=$(( SPLIT_MB * 1024 * 1024 ))
           BACKUP_DIR="/tmp/video_backup_$$"
