@@ -112,8 +112,8 @@ jobs:
           read -ra URL_LIST <<< "$URLS_RAW"
           TOTAL_URLS=${#URL_LIST[@]}
           QUALITY="360"
-          FORMAT="bestvideo[height<=360]+bestaudio/bestvideo[height<=360]*+bestaudio*/best[height<=360]/best"
-          SPLIT_MB=45
+          FORMAT="bestvideo[height<=480]+bestaudio/bestvideo[height<=480]*+bestaudio*/best[height<=480]/best"
+          SPLIT_MB=100
           SPLIT_BYTES=$(( SPLIT_MB * 1024 * 1024 ))
           BACKUP_DIR="/tmp/video_backup_$$"
           mkdir -p "$BACKUP_DIR"
